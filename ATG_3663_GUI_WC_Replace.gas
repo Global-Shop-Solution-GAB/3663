@@ -1,0 +1,118 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Function.Intrinsic.Debug.SetScriptVersion("1.0.0","False")
+Variable.Global.sWC.Declare(String)
+Variable.Global.sWCArr.Declare(String)
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'6/2/08
+'Cox Machine
+'Replace WC with prototype WC when updating jobs from the GUI.
+'Read text file of WCs to be replaced.
+'Hook # - 15880
+
+'F.Intrinsic.Debug.DumpOutputHookfile
+V.Global.sWC.Set(V.Passed.000010)
+F.ODBC.Connection!con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.Control.CallSub("GetWCList")
+F.Intrinsic.Control.CallSub("ReplaceWC")
+F.Intrinsic.Control.CallSub("ProgramEnd")
+
+Program.Sub.Main.End
+
+Program.Sub.ProgramEnd.Start
+F.Intrinsic.Control.If(V.Odbc.con.State,=,1)
+	F.ODBC.Connection!con.Close
+F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.End
+
+Program.Sub.ProgramEnd.End
+
+Program.Sub.GetWCList.Start
+V.Local.sTemp.Declare(String)
+V.Local.sPath.Declare(String)
+V.Local.sFile.Declare(String)
+V.Local.i.Declare(Long)
+V.Local.iLBound.Declare(Long)
+V.Local.iUBound.Declare(Long)
+V.Local.iAdd.Declare(Long)
+
+'F.Intrinsic.Debug.InvokeDebugger
+'F.Intrinsic.Debug.Stop
+'Read WCReplace.txt from Global\Plugins.  This file contains a list (1 per line) of the workcenters that need to be replaced.
+F.Intrinsic.String.Concat(V.Caller.PluginsDir,"\WCReplace.txt",V.Local.sPath)
+F.Intrinsic.File.File2String(V.Local.sPath,V.Local.sFile)
+F.Intrinsic.String.Split(V.Local.sFile,V.Ambient.NewLine,V.Local.sTemp)
+V.Local.iLBound.Set(V.Local.sTemp.LBound)
+V.Local.iUBound.Set(V.Local.sTemp.UBound)
+F.Intrinsic.Control.For(V.Local.i,V.Local.iLBound,V.Local.iUBound,1)
+	F.Intrinsic.Control.If(V.Local.sTemp(v.Local.i).Trim,<>,V.Ambient.DblQuote)
+		F.Intrinsic.Control.If(V.Global.sWCArr.UBound,>,0)
+			F.Intrinsic.Math.Add(V.Local.iUBound,1,V.Local.iAdd)
+			V.Global.sWCArr.RedimPreserve(0,V.Local.iAdd)
+		F.Intrinsic.Control.EndIf
+		'Load global array with workcenters to be replaced.
+		V.Global.sWCArr(v.Global.sWCArr.UBound).Set(V.Local.sTemp(v.Local.i).Trim)
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.i)
+
+
+Program.Sub.GetWCList.End
+
+Program.Sub.ReplaceWC.Start
+V.Local.i.Declare(Long)
+V.Local.sSQL.Declare(String)
+V.Local.sJob.Declare(String)
+V.Local.sSfx.Declare(String)
+V.Local.sSeq.Declare(String)
+V.Local.sTemp.Declare(String)
+V.Local.sWG.Declare(String)
+
+'F.Intrinsic.Debug.InvokeDebugger
+'F.Intrinsic.Debug.Stop
+'Search through global array of workcenters to see if the current workcenter is found.
+F.Intrinsic.Control.For(V.Local.i,V.Global.sWCArr.LBound,V.Global.sWCArr.UBound,1)
+	'F.Intrinsic.Debug.Stop
+	F.Intrinsic.Control.If(V.Global.sWC.Trim,=,V.Global.sWCArr(v.Local.i).Trim)
+		F.Intrinsic.String.Split(V.Passed.000004,"-",V.Local.sTemp)
+		V.Local.sJob.Set(V.Local.sTemp(0))
+		V.Local.sSfx.Set(V.Local.sTemp(1))
+		F.Intrinsic.String.LPad(V.Passed.000005,"0",6,V.Local.sSeq)
+		'If current workcenter is found on list, get workcenter from job operations file.
+		F.Intrinsic.String.Concat("Select Part from Job_Operations where Job='",V.Local.sJob,"' and Suffix='",V.Local.sSfx,"' and Seq='",V.Local.sSeq,"'",V.Local.sSQL)
+		F.ODBC.Connection!con.OpenRecordsetRO("rst",V.Local.sSQL)
+		F.Intrinsic.Control.If(V.ODBC.con!rst.EOF,=,False)
+			'Get workgroup that the workcenter is a member of
+			F.Intrinsic.String.Concat("Select workgroup from workgroup_line where workcenter='",V.ODBC.con!rst.FieldVal!Part,"'",V.Local.sSQL)
+			F.ODBC.Connection!con.OpenRecordsetRO("rstG",V.Local.sSQL)
+			F.Intrinsic.Control.If(V.ODBC.con!rstG.EOF,=,False)
+				V.Local.sWG.Set(V.ODBC.con!rstG.FieldVal!workgroup)
+			F.Intrinsic.Control.Else
+				F.Intrinsic.Control.End
+			F.Intrinsic.Control.EndIf
+			F.ODBC.con!rstG.Close
+			'Get prototype workcenter for the workgroup
+			F.Intrinsic.String.Concat("Select WG_Prototype_WC from Workcenters where Funct='RS' and Type='MC' and Machine='",V.Local.sWG,"'",V.Local.sSQL)
+			F.ODBC.Connection!con.OpenRecordsetRO("rstW",V.Local.sSQL)
+			F.Intrinsic.Control.If(V.ODBC.con!rstW.EOF,=,False)
+				'Replace current workcenter with prototype workcenter
+				V.Passed.000010.Set(V.ODBC.con!rstW.FieldVal!WG_Prototype_WC)
+				'V.Passed.777777.Set(1)
+			F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.ExitFor(V.Local.i)
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.i)
+
+Program.Sub.ReplaceWC.End
+
+Program.Sub.Comments.Start
+${$0$}$ATG_3663_GUI_WC_Replace$}$RLK$}$4/1/2016
+${$1$}$$}$$}$0$}$15890$}$OLS003-PB-PROCESS-POST-HOOK (On-line GUI)$}$4/1/2016 10:37:11 AM$}$(Program: OLG002; Screen: OLS003)
+
+Program.Sub.Comments.End
+
